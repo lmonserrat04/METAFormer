@@ -3,3 +3,8 @@ pandas
 torch
 matplotlib
 sklearn
+captum
+nilearn
+joblib
+tqdm
+wget
