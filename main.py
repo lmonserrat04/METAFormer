@@ -18,7 +18,7 @@ cfg = {
     "BATCH_SIZE": 64,
     "LR_HEADS": 1e-5,       # heads (capas nuevas)
     "LR_ENCODERS": 1e-6,    # encoders (pesos preentrenados)
-    "WEIGHT_DECAY": 1e-3,
+    "WEIGHT_DECAY": 1e-2,
     "DROP": 0.3,
     "AUG": 0.3,
     "DEVICE": "cuda:0",
@@ -26,7 +26,7 @@ cfg = {
     "EPOCHS": 2000,
     "N_SPLITS": 2,
     "NUM_WORKERS": 8,
-    "LOSS": nn.CrossEntropyLoss(),
+    "LOSS": nn.CrossEntropyLoss(label_smoothing = 0.1),
 }
 
 DL_KWARGS = dict(
