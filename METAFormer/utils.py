@@ -6,7 +6,7 @@ from tqdm import tqdm
 from sklearn.metrics import accuracy_score
 import torch.nn.functional as F
 import torch.nn as nn
-
+from logger import log_losses
 from METAFormer.dataloader import ImputationDataset
 
 
@@ -27,7 +27,7 @@ class MaskedMSELoss(nn.Module):
         return self.mse_loss(masked_pred, masked_true)
 
 
-def pretrain(model, train_loader, val_loader, optimizer, epochs, device, stage, patience=1, scheduler=None):
+def pretrain(model, train_loader, val_loader, optimizer,device, epochs, stage, patience, scheduler=None):
     early_stopping = True if patience else False
     losses = []
     val_losses = []
@@ -57,18 +57,22 @@ def pretrain(model, train_loader, val_loader, optimizer, epochs, device, stage, 
                 loss_aal = crit_aal(outputs[0], aal, aal_mask.bool())
                 loss_cc200 = crit_cc200(outputs[1], cc200, cc200_mask.bool())
                 loss_dos160 = crit_dos160(outputs[2], dos160, dos160_mask.bool())
+                
                 loss = loss_aal + loss_cc200 + loss_dos160
                 loss.backward()
                 optimizer.step()
 
                 running_loss += loss.item()
                 epoch_losses.append(loss.item())
+
             if scheduler:
                 scheduler.step()
-            tepoch.set_postfix(loss=f"{running_loss/len(train_loader)}")
             losses.extend(epoch_losses)
             epoch_losses = []
+            
 
+
+            #Validation pretraining
             model.eval()
             with torch.no_grad():
                 val_running_loss = 0.0
@@ -90,8 +94,9 @@ def pretrain(model, train_loader, val_loader, optimizer, epochs, device, stage, 
                     val_losses.append(loss.item())
 
                 avg_val_loss = val_running_loss / len(val_loader)
+                train_loss = running_loss/len(train_loader)
 
-                if avg_val_loss < best_val_loss:
+                if avg_val_loss < best_val_loss and (best_val_loss - avg_val_loss) >= 1e-4:
                     best_val_loss = avg_val_loss
                     counter = 0
                     best_model = copy.deepcopy(model)
@@ -100,10 +105,17 @@ def pretrain(model, train_loader, val_loader, optimizer, epochs, device, stage, 
                     if early_stopping and counter >= patience:
                         print("Early stopping!")
                         break
+                
+                #tepoch.set_postfix(train_loss=f"{train_loss:.4f}")
+                tepoch.set_postfix(val_loss=f"{avg_val_loss:.4f}")
+                #tepoch.set_postfix(counter=f"{counter}")
+                #log_losses(stage, epoch, train_loss, avg_val_loss)
+
+    torch.save(best_model.state_dict(), "pretrained.pth")
     return best_model
 
 
-def train(model, train_loader, val_loader, criterion, optimizer, epochs, device, patience=2, scheduler=None, return_best_acc=False):
+def train(model, train_loader, val_loader, criterion, optimizer,device, epochs, patience, scheduler=None, return_best_acc=False):
 
     early_stopping = True if patience else False
     losses = []
@@ -112,6 +124,7 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device,
     best_model = None
     best_acc = 0
     counter = 0
+   
 
     with tqdm(range(epochs), unit="epoch") as tepoch:
         for epoch in tepoch:
@@ -133,10 +146,12 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device,
                 epoch_losses.append(loss.item())
             if scheduler:
                 scheduler.step()
-            tepoch.set_postfix(loss=f"{running_loss/len(train_loader)}")
             losses.extend(epoch_losses)
             epoch_losses = []
 
+
+
+            #Validation training
             model.eval()
             with torch.no_grad():
                 val_running_loss = 0.0
@@ -155,6 +170,7 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device,
                     y_pred.extend(np.argmax(np.where(yp > 0.5, 1, 0), axis=1))
 
                 avg_val_loss = val_running_loss / len(val_loader)
+                train_loss = running_loss/len(train_loader)
                 acc = accuracy_score(y_true, y_pred)
 
                 if avg_val_loss < best_val_loss:
@@ -168,6 +184,10 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device,
                         break
                 if acc > best_acc:
                     best_acc = acc
+            
+            #tepoch.set_postfix(train_loss=f"{running_loss/len(train_loader)}")
+            tepoch.set_postfix(val_loss=f"{avg_val_loss:.4f}")
+            log_losses(f"fine tuning", epoch, train_loss, avg_val_loss)
 
     print(f"best acc: {best_acc}")
 
