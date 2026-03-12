@@ -120,7 +120,7 @@ class METAFormer(nn.Module):
 
 
 class EncoderBlock(nn.Module):
-    def __init__(self, input_dim, d_model, n_heads, num_encoder_layers, dim_feedforward, dropout=0.1):
+    def __init__(self, input_dim, d_model, dim_feedforward, num_encoder_layers, n_heads, dropout=0.1):
         super().__init__()
         self.d_model = d_model
         self.inp_emb = nn.Linear(input_dim, d_model)

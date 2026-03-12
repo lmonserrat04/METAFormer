@@ -18,7 +18,7 @@ class SingleAtlas(Dataset):
     def __getitem__(self, idx):
         x = self.x[idx].clone()
 
-        if np.random.rand() > self.augment:
+        if np.random.rand() < self.augment:
             x += torch.randn_like(x) * 0.01
 
         x = (x - x.mean()) / x.std()
@@ -46,7 +46,7 @@ class MultiAtlas(Dataset):
         cc200 = self.cc200[idx].clone()
         do160 = self.do160[idx].clone()
 
-        if np.random.rand() > self.augment:
+        if np.random.rand() < self.augment:
             aal   += torch.randn_like(aal)   * 0.01
             cc200 += torch.randn_like(cc200) * 0.01
             do160 += torch.randn_like(do160) * 0.01
@@ -62,7 +62,7 @@ class MultiAtlas(Dataset):
 
 
 class ImputationDataset(Dataset):
-    def __init__(self, df, mask_ratio=0.15):
+    def __init__(self, df, mask_ratio=0.10):
         self.mask_ratio = mask_ratio
         print("Cargando ImputationDataset en RAM...")
         self.aal    = [torch.tensor(np.loadtxt(row.aal)).float()          for _, row in tqdm(df.iterrows(), total=len(df))]

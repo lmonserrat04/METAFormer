@@ -14,16 +14,16 @@ from METAFormer.utils import pretrain, train, test
 
 
 cfg = {
-    "BATCH_SIZE": 2048,
+    "BATCH_SIZE": 256,
     "LR": 1e-4,
     "VAL_AFTER": 1,
-    "LOSS": nn.BCEWithLogitsLoss(),
+    "LOSS": nn.CrossEntropyLoss(),
     "WEIGHT_DECAY": 0.00,
     "DROP": 0.1,
     "AUG": 0.3,
     "GAMMA": 0.9,
     "DEVICE": "cuda:0",
-    "PATIENCE": 20,
+    "PATIENCE": 40,
     "EPOCHS": 750,
     "N_SPLITS": 2,
 }
@@ -53,15 +53,15 @@ def pretrain_train_cross_validate(args):
         print(80 * "=")
 
         train_df, val_df = train_test_split(
-            df.iloc[train_idx], test_size=0.3, random_state=42)
+            df.iloc[train_idx], test_size=0.3, random_state=fold)
         test_df = df.iloc[test_idx]
 
         train_loader = DataLoader(MultiAtlas(
-            train_df), batch_size=cfg["BATCH_SIZE"], shuffle=True, num_workers=8, pin_memory=True)
+            train_df,augment=cfg["AUG"]), batch_size=cfg["BATCH_SIZE"], shuffle=True, num_workers=8, pin_memory=True)
         val_loader = DataLoader(MultiAtlas(
-            val_df), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
+            val_df,augment=cfg["AUG"]), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
         test_loader = DataLoader(MultiAtlas(
-            test_df), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
+            test_df,augment=cfg["AUG"]), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
 
         # Pretrain
         pretrain_loader = DataLoader(ImputationDataset(
@@ -91,18 +91,25 @@ def pretrain_train_cross_validate(args):
         model.dos160_encoder.load_state_dict(
             pretrained.dos160_encoder.state_dict())
 
+        #HE inicialization
+        for m in model.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight)
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
         optimizer = optim.AdamW(
             model.parameters(), lr=cfg["LR"], weight_decay=cfg["WEIGHT_DECAY"])
 
-        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.9)
-        criterion = nn.BCEWithLogitsLoss().to(cfg["DEVICE"])
+        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=cfg["GAMMA"])
+        criterion = nn.CrossEntropyLoss().to(cfg["DEVICE"])
 
         trained_model, best_a = train(model, train_loader, val_loader, criterion, optimizer,
                                       cfg["EPOCHS"], device, patience=cfg["PATIENCE"], scheduler=scheduler, return_best_acc=True)
 
         # Test
         print("Testing...")
-        trues, preds = test(trained_model, test_loader, device)
+        trues, preds, probs = test(trained_model, test_loader, device)
 
         acc = accuracy_score(trues, preds)
         accs.append(acc)

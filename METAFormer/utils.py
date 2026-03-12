@@ -67,6 +67,7 @@ def pretrain(model, train_loader, val_loader, optimizer, epochs, device, stage, 
                 scheduler.step()
             tepoch.set_postfix(loss=f"{running_loss/len(train_loader)}")
             losses.extend(epoch_losses)
+            epoch_losses = []
 
             model.eval()
             with torch.no_grad():
@@ -134,6 +135,7 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device,
                 scheduler.step()
             tepoch.set_postfix(loss=f"{running_loss/len(train_loader)}")
             losses.extend(epoch_losses)
+            epoch_losses = []
 
             model.eval()
             with torch.no_grad():
@@ -149,7 +151,7 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device,
                     val_losses.append(val_loss.item())
 
                     y_true.extend(np.argmax(labels.detach().cpu().numpy(), axis=1))
-                    yp = outputs.detach().cpu().numpy()
+                    yp = F.softmax(outputs, dim=1).detach().cpu().numpy()
                     y_pred.extend(np.argmax(np.where(yp > 0.5, 1, 0), axis=1))
 
                 avg_val_loss = val_running_loss / len(val_loader)
@@ -176,13 +178,14 @@ def train(model, train_loader, val_loader, criterion, optimizer, epochs, device,
 
 def test(model, test_loader, device):
     model.eval()
-    y_true, y_pred = [], []
+    y_true, y_pred, y_prob = [], [], []
     with torch.no_grad():
         for inputs, targets in test_loader:
             aal, cc200, do160 = inputs[0].to(device), inputs[1].to(device), inputs[2].to(device)
             targets = targets.to(device)
             outputs = model(aal, cc200, do160)
+            probs = F.softmax(outputs, dim=1).detach().cpu().numpy()
             y_true.extend(np.argmax(targets.detach().cpu().numpy(), axis=1))
-            yp = F.softmax(outputs, dim=1).detach().cpu().numpy()
-            y_pred.extend(np.argmax(np.where(yp > 0.5, 1, 0), axis=1))
-    return y_true, y_pred
+            y_pred.extend(np.argmax(np.where(probs > 0.5, 1, 0), axis=1))
+            y_prob.extend(probs[:, 1])
+    return y_true, y_pred, y_prob
