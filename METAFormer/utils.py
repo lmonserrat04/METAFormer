@@ -183,7 +183,7 @@ def train(model,cfg, train_loader, val_loader, criterion, optimizer,device, epoc
                     else:
                         scheduler.step()
 
-                if avg_val_loss < best_val_loss:
+                if avg_val_loss < best_val_loss and (best_val_loss - avg_val_loss) >= 1e-3:
                     best_val_loss = avg_val_loss
                     best_model = copy.deepcopy(model)
                     counter = 0

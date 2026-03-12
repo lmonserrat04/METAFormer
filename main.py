@@ -16,20 +16,17 @@ from logger import Logger
 
 cfg = {
     "BATCH_SIZE": 64,
-    "LR": 1e-5,
-    "VAL_AFTER": 1,
-    "LOSS": nn.CrossEntropyLoss(),
+    "LR_HEADS": 1e-5,       # heads (capas nuevas)
+    "LR_ENCODERS": 1e-6,    # encoders (pesos preentrenados)
     "WEIGHT_DECAY": 1e-3,
     "DROP": 0.3,
     "AUG": 0.3,
-    "GAMMA": 0.995,
     "DEVICE": "cuda:0",
     "PATIENCE": 100,
     "EPOCHS": 2000,
     "N_SPLITS": 2,
     "NUM_WORKERS": 8,
-    "FREEZE_EPOCHS": 50,
-    "LR_PHASE2": 1e-6,
+    "LOSS": nn.CrossEntropyLoss(),
 }
 
 DL_KWARGS = dict(
@@ -52,8 +49,6 @@ def pretrain_train_cross_validate(args):
                   "F1", "AUC", "AP", "FPR", "FNR", "TPR", "TNR"]
     vals = []
 
-    # Logger de tests en modo 'a' — acumula resultados de todos los folds
-    # y no sobreescribe entre runs
     log_test = Logger("test_log.txt", mode='a')
 
     for fold, (train_idx, test_idx) in enumerate(kfold.split(x, y)):
@@ -91,7 +86,7 @@ def pretrain_train_cross_validate(args):
         #     model=pt_model, cfg=cfg, train_loader=pretrain_loader,
         #     val_loader=preval_loader,
         #     optimizer=optim.AdamW(pt_model.parameters(),
-        #         lr=cfg["LR"], weight_decay=cfg["WEIGHT_DECAY"]),
+        #         lr=cfg["LR_HEADS"], weight_decay=cfg["WEIGHT_DECAY"]),
         #     epochs=cfg["EPOCHS"], device=device,
         #     stage=f"pretrain fold {fold}",
         #     patience=cfg["PATIENCE"], scheduler=None)
@@ -117,46 +112,29 @@ def pretrain_train_cross_validate(args):
 
         criterion = cfg["LOSS"].to(device)
 
-        # ----------------------------------------------------------------
-        # FASE 1 — encoders congelados, solo se entrenan los heads
-        # ----------------------------------------------------------------
-        print("Fase 1: encoders frozen...")
-        for name, param in model.named_parameters():
-            if "encoder" in name:
-                param.requires_grad = False
+        # --- Differential LR: encoders lento, heads rapido ---
+        optimizer = optim.AdamW([
+            {"params": model.aal_encoder.parameters(),    "lr": cfg["LR_ENCODERS"]},
+            {"params": model.cc200_encoder.parameters(),  "lr": cfg["LR_ENCODERS"]},
+            {"params": model.dos160_encoder.parameters(), "lr": cfg["LR_ENCODERS"]},
+            {"params": model.aal_head.parameters(),       "lr": cfg["LR_HEADS"]},
+            {"params": model.cc200_head.parameters(),     "lr": cfg["LR_HEADS"]},
+            {"params": model.dos160_head.parameters(),    "lr": cfg["LR_HEADS"]},
+        ], weight_decay=cfg["WEIGHT_DECAY"])
 
-        optimizer_p1 = optim.AdamW(
-            [p for name, p in model.named_parameters() if "encoder" not in name],
-            lr=cfg["LR"],
-            weight_decay=cfg["WEIGHT_DECAY"]
+        # CosineAnnealingLR: LR baja suavemente de LR_HEADS hasta eta_min
+        # en T_max epochs — mucho mas recorrido que ExponentialLR
+        scheduler = optim.lr_scheduler.CosineAnnealingLR(
+            optimizer,
+            T_max=cfg["EPOCHS"],
+            eta_min=1e-8
         )
-
-        model, _ = train(model, cfg, train_loader, val_loader, criterion,
-                         optimizer_p1, device,
-                         epochs=cfg["FREEZE_EPOCHS"],
-                         patience=cfg["FREEZE_EPOCHS"],  # sin early stopping en fase 1
-                         scheduler=None,
-                         return_best_acc=True)
-
-        # ----------------------------------------------------------------
-        # FASE 2 — todo descongelado, LR mas bajo
-        # ----------------------------------------------------------------
-        print("Fase 2: full model unfrozen...")
-        for param in model.parameters():
-            param.requires_grad = True
-
-        optimizer_p2 = optim.AdamW(
-            model.parameters(),
-            lr=cfg["LR_PHASE2"],
-            weight_decay=cfg["WEIGHT_DECAY"]
-        )
-        scheduler_p2 = optim.lr_scheduler.ExponentialLR(optimizer_p2, gamma=cfg["GAMMA"])
 
         trained_model, best_a = train(model, cfg, train_loader, val_loader, criterion,
-                                      optimizer_p2, device,
+                                      optimizer, device,
                                       epochs=cfg["EPOCHS"],
                                       patience=cfg["PATIENCE"],
-                                      scheduler=scheduler_p2,
+                                      scheduler=scheduler,
                                       return_best_acc=True)
 
         # --- Test ---
@@ -179,9 +157,7 @@ def pretrain_train_cross_validate(args):
         print(f"Fold {fold}: Accuracy: {acc:.4f}")
         print(f"Fold {fold}: Confusion matrix:\n{cm}")
 
-        # Loguear resultados del test (modo 'a' — acumula entre runs)
         log_test.log_test(fold, acc, precision, recall, f1, auc, ap, fpr, fnr, tpr, tnr)
-
         vals.append([fold, acc, precision, recall, f1, auc, ap, fpr, fnr, tpr, tnr])
 
     results = pd.DataFrame(vals, columns=table_cols)
