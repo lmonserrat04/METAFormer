@@ -1,0 +1,15 @@
+# --- Carpetas de Datos y Recursos (IGNORAR) ---
+out_dir_*/
+fc_*/
+assets/
+
+# --- Python & Entorno ---
+__pycache__/
+*.pyc
+venv/
+.env
+.ipynb_checkpoints/
+
+# --- Archivos de sistema ---
+.DS_Store
+Thumbs.db

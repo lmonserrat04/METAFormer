@@ -14,17 +14,18 @@ from METAFormer.utils import pretrain, train, test
 
 
 cfg = {
-    "BATCH_SIZE": 256,
+    "BATCH_SIZE": 2048,
     "LR": 1e-4,
     "VAL_AFTER": 1,
     "LOSS": nn.BCEWithLogitsLoss(),
     "WEIGHT_DECAY": 0.00,
-    "DROP": 0.0,
-    "AUG": 0.0,
+    "DROP": 0.1,
+    "AUG": 0.3,
     "GAMMA": 0.9,
     "DEVICE": "cuda:0",
     "PATIENCE": 20,
     "EPOCHS": 750,
+    "N_SPLITS": 2,
 }
 
 
@@ -35,7 +36,7 @@ def pretrain_train_cross_validate(args):
     df = pd.read_csv(args.csv)
 
     # cross validation
-    kfold = StratifiedKFold(n_splits=10, shuffle=True, random_state=42)
+    kfold = StratifiedKFold(n_splits=cfg['N_SPLITS'], shuffle=True, random_state=42)
 
     y = df.LABELS
     x = df.drop("LABELS", axis=1)
@@ -56,11 +57,11 @@ def pretrain_train_cross_validate(args):
         test_df = df.iloc[test_idx]
 
         train_loader = DataLoader(MultiAtlas(
-            train_df, softsign=False), batch_size=cfg["BATCH_SIZE"], shuffle=True, num_workers=8, pin_memory=True)
+            train_df), batch_size=cfg["BATCH_SIZE"], shuffle=True, num_workers=8, pin_memory=True)
         val_loader = DataLoader(MultiAtlas(
-            val_df, softsign=False), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
+            val_df), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
         test_loader = DataLoader(MultiAtlas(
-            test_df, softsign=False), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
+            test_df), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
 
         # Pretrain
         pretrain_loader = DataLoader(ImputationDataset(
@@ -71,10 +72,11 @@ def pretrain_train_cross_validate(args):
         pt_model = METAWrapper(d_model=256, dim_feedforward=128, num_encoder_layers=2,
                                num_heads=4, dropout=cfg["DROP"]).to(cfg["DEVICE"])
 
-        pt_optim = optim.AdamW(METAWrapper.parameters(),
+        # Bug fix: usar pt_model (instancia) en vez de METAWrapper (clase)
+        pt_optim = optim.AdamW(pt_model.parameters(),
                                lr=cfg["LR"], weight_decay=cfg["WEIGHT_DECAY"])
 
-        pretrained = pretrain(model=METAWrapper, train_loader=pretrain_loader, val_loader=preval_loader,
+        pretrained = pretrain(model=pt_model, train_loader=pretrain_loader, val_loader=preval_loader,
                               optimizer=pt_optim, epochs=1000, device=device, stage=f"pretrain fold {fold}", patience=50, scheduler=None)
 
         print("Pretraining finished...")

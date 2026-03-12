@@ -2,12 +2,13 @@ import pandas as pd
 from pathlib import Path
 import argparse
 
+#python3 gen_csv.py fc_aal fc_cc200 fc_dosenbach160 --pheno_file data.csv --output fc.csv
 
 def main(args):
     paths = args.paths
     output = Path(args.output)
 
-    pheno_df = pd.read_csv("args.pheno_file")
+    pheno_df = pd.read_csv(args.pheno_file)
     dfs = []
     for path in paths:
         files = list(Path(path).glob('*.1D'))

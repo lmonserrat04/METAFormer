@@ -4,6 +4,9 @@ from nilearn.connectome import ConnectivityMeasure
 from pathlib import Path
 import argparse
 
+# python3 connectome.py --path out_dir_aal/ABIDE_pcp/dparsf/filt_noglobal --output fc_aal
+# python3 connectome.py --path out_dir_cc200/ABIDE_pcp/dparsf/filt_noglobal --output fc_cc200
+# python3 connectome.py --path out_dir_dosenbach160/ABIDE_pcp/dparsf/filt_noglobal --output fc_dosenbach160
 
 def generate_fc(path, kind='correlation', vectorize=True, discard_diagonal=True):
     """
@@ -13,6 +16,7 @@ def generate_fc(path, kind='correlation', vectorize=True, discard_diagonal=True)
     :return: functional connectivity matrix
     """
     arr = np.loadtxt(path)
+    
     conn = ConnectivityMeasure(
         kind=kind, vectorize=vectorize, discard_diagonal=discard_diagonal)
     fc = conn.fit_transform([arr])[0]
@@ -20,12 +24,19 @@ def generate_fc(path, kind='correlation', vectorize=True, discard_diagonal=True)
 
 
 def main(args):
-    path = Path(args.path)
-    output = Path(args.output)
+    path = Path(args.path).expanduser().resolve()
+    output = Path(args.output).expanduser().resolve()
+    
     if not output.exists():
         output.mkdir(parents=True, exist_ok=True)
 
-    files = path.glob('*.1D')
+    # Cambiamos glob por una lista directa para depurar
+    files = list(path.iterdir())
+    # Filtramos solo archivos que terminen en .1D (sensible a mayúsculas)
+    files = [f for f in files if f.name.endswith('.1D')]
+
+    print(f"Ruta procesada por Python: {path}")
+    print(f"Archivos .1D encontrados: {len(files)}")
 
     for file in files:
         fc = generate_fc(file)

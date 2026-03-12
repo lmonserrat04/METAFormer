@@ -1,4 +1,3 @@
-
 import torch
 import torch.nn as nn
 import math
@@ -25,7 +24,6 @@ class SAT(nn.Module):
         x = self.act(x)
         x = self.do(x)
         x = self.head(x)
-
         return x
 
 
@@ -38,40 +36,39 @@ class METAWrapper(nn.Module):
         self.num_heads = num_heads
         self.dropout = dropout
 
-        self.aal_encoder = EncoderBlock(
-            6670, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
-        self.cc200_encoder = EncoderBlock(
-            19900, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
-        self.dos160_encoder = EncoderBlock(
-            12880, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
+        self.aal_encoder    = EncoderBlock(6670,  d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
+        self.cc200_encoder  = EncoderBlock(19900, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
+        self.dos160_encoder = EncoderBlock(12880, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
 
-        self.aal_act = nn.GELU()
-        self.cc200_act = nn.GELU()
+        self.aal_act    = nn.GELU()
+        self.cc200_act  = nn.GELU()
         self.dos160_act = nn.GELU()
 
-        self.aal_do = nn.Dropout(dropout)
-        self.cc200_do = nn.Dropout(dropout)
+        self.aal_do    = nn.Dropout(dropout)
+        self.cc200_do  = nn.Dropout(dropout)
         self.dos160_do = nn.Dropout(dropout)
 
-        self.aal_head = nn.Linear(d_model, 6670)
-        self.cc200_head = nn.Linear(d_model, 19900)
+        self.aal_head    = nn.Linear(d_model, 6670)
+        self.cc200_head  = nn.Linear(d_model, 19900)
         self.dos160_head = nn.Linear(d_model, 12880)
 
-    def forward(self, aal, cc200, dos160, aal_mask, cc200_mask, dos160_mask):
-        aal = self.aal_encoder(aal, aal_mask)
-        cc200 = self.cc200_encoder(cc200, cc200_mask)
-        dos160 = self.dos160_encoder(dos160, dos160_mask)
+    def forward(self, aal, cc200, dos160, aal_mask=None, cc200_mask=None, dos160_mask=None):
+        # La mascara de features se aplica antes de entrar al encoder
+        # El EncoderBlock no necesita src_key_padding_mask porque seq_len=1
+        aal    = self.aal_encoder(aal)
+        cc200  = self.cc200_encoder(cc200)
+        dos160 = self.dos160_encoder(dos160)
 
-        aal = self.aal_act(aal)
-        cc200 = self.cc200_act(cc200)
+        aal    = self.aal_act(aal)
+        cc200  = self.cc200_act(cc200)
         dos160 = self.dos160_act(dos160)
 
-        aal = self.aal_do(aal)
-        cc200 = self.cc200_do(cc200)
+        aal    = self.aal_do(aal)
+        cc200  = self.cc200_do(cc200)
         dos160 = self.dos160_do(dos160)
 
-        aal = self.aal_head(aal)
-        cc200 = self.cc200_head(cc200)
+        aal    = self.aal_head(aal)
+        cc200  = self.cc200_head(cc200)
         dos160 = self.dos160_head(dos160)
 
         return aal, cc200, dos160
@@ -86,44 +83,40 @@ class METAFormer(nn.Module):
         self.num_heads = num_heads
         self.dropout = dropout
 
-        self.aal_encoder = EncoderBlock(
-            6670, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
-        self.cc200_encoder = EncoderBlock(
-            19900, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
-        self.dos160_encoder = EncoderBlock(
-            12880, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
-        self.aal_act = nn.GELU()
-        self.cc200_act = nn.GELU()
+        self.aal_encoder    = EncoderBlock(6670,  d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
+        self.cc200_encoder  = EncoderBlock(19900, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
+        self.dos160_encoder = EncoderBlock(12880, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
+
+        self.aal_act    = nn.GELU()
+        self.cc200_act  = nn.GELU()
         self.dos160_act = nn.GELU()
 
-        self.aal_do = nn.Dropout(p=dropout)
-        self.cc200_do = nn.Dropout(p=dropout)
+        self.aal_do    = nn.Dropout(p=dropout)
+        self.cc200_do  = nn.Dropout(p=dropout)
         self.dos160_do = nn.Dropout(p=dropout)
 
-        self.aal_head = nn.Linear(d_model, 2)
-        self.cc200_head = nn.Linear(d_model, 2)
+        self.aal_head    = nn.Linear(d_model, 2)
+        self.cc200_head  = nn.Linear(d_model, 2)
         self.dos160_head = nn.Linear(d_model, 2)
 
     def forward(self, aal, cc200, dos160):
-        aal = self.aal_encoder(aal)
-        cc200 = self.cc200_encoder(cc200)
+        aal    = self.aal_encoder(aal)
+        cc200  = self.cc200_encoder(cc200)
         dos160 = self.dos160_encoder(dos160)
 
-        aal = self.aal_act(aal)
-        cc200 = self.cc200_act(cc200)
+        aal    = self.aal_act(aal)
+        cc200  = self.cc200_act(cc200)
         dos160 = self.dos160_act(dos160)
 
-        aal = self.aal_do(aal)
-        cc200 = self.cc200_do(cc200)
+        aal    = self.aal_do(aal)
+        cc200  = self.cc200_do(cc200)
         dos160 = self.dos160_do(dos160)
 
-        aal = self.aal_head(aal)
-        cc200 = self.cc200_head(cc200)
+        aal    = self.aal_head(aal)
+        cc200  = self.cc200_head(cc200)
         dos160 = self.dos160_head(dos160)
 
-        output = (aal + cc200 + dos160) / 3
-
-        return output
+        return (aal + cc200 + dos160) / 3
 
 
 class EncoderBlock(nn.Module):
@@ -132,21 +125,15 @@ class EncoderBlock(nn.Module):
         self.d_model = d_model
         self.inp_emb = nn.Linear(input_dim, d_model)
         encoder_layer = nn.TransformerEncoderLayer(
-            d_model, n_heads, dim_feedforward, dropout=dropout, activation="gelu")
+            d_model, n_heads, dim_feedforward, dropout=dropout,
+            activation="gelu", batch_first=True)
         self.encoder = nn.TransformerEncoder(encoder_layer, num_encoder_layers)
 
     def forward(self, x, mask=None):
-        if mask:
-            x = self.inp_emb(x) / math.sqrt(self.d_model)
-            x = self.encoder(x)
-        else:
-            # fake sequence len of 1
-            x = x.unsqueeze(0)
-            x = x.permute(1, 0, 2)
-
-            mask = mask.unsqueeze(0)
-            mask = mask.permute(1, 0, 2)
-
-            x = self.inp_emb(x) / math.sqrt(self.d_model)
-            x = self.encoder(x, src_key_padding_mask=mask)
+        # x: (B, feat_dim) -> (B, 1, feat_dim)
+        x = x.unsqueeze(1)
+        x = self.inp_emb(x) / math.sqrt(self.d_model)  # (B, 1, d_model)
+        # seq_len=1: src_key_padding_mask no tiene sentido, siempre se pasa sin mascara
+        x = self.encoder(x)
+        x = x.squeeze(1)  # (B, d_model)
         return x
