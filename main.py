@@ -11,6 +11,7 @@ from sklearn.model_selection import StratifiedKFold, train_test_split
 from METAFormer.dataloader import ImputationDataset, MultiAtlas
 from METAFormer.models import METAFormer, METAWrapper
 from METAFormer.utils import pretrain, train, test
+from logger import Logger
 
 
 cfg = {
@@ -18,34 +19,42 @@ cfg = {
     "LR": 1e-5,
     "VAL_AFTER": 1,
     "LOSS": nn.CrossEntropyLoss(),
-    "WEIGHT_DECAY": 0.00,
+    "WEIGHT_DECAY": 1e-3,
     "DROP": 0.3,
     "AUG": 0.3,
-    "GAMMA": 0.9,
+    "GAMMA": 0.995,
     "DEVICE": "cuda:0",
     "PATIENCE": 100,
     "EPOCHS": 2000,
     "N_SPLITS": 2,
+    "NUM_WORKERS": 8,
+    "FREEZE_EPOCHS": 50,
+    "LR_PHASE2": 1e-6,
 }
+
+DL_KWARGS = dict(
+    num_workers=cfg["NUM_WORKERS"],
+    pin_memory=True,
+)
 
 
 def pretrain_train_cross_validate(args):
 
     device = cfg["DEVICE"]
-
     df = pd.read_csv(args.csv)
 
-    # cross validation
-    kfold = StratifiedKFold(n_splits=cfg['N_SPLITS'], shuffle=True, random_state=42)
-
+    kfold = StratifiedKFold(n_splits=cfg["N_SPLITS"], shuffle=True, random_state=42)
     y = df.LABELS
     x = df.drop("LABELS", axis=1)
     accs = []
 
-    table_cols = ['Fold', 'Accuracy', 'Precision', 'Recall',
-                  'F1', 'AUC', 'AP', 'FPR', 'FNR', 'TPR', 'TNR']
-
+    table_cols = ["Fold", "Accuracy", "Precision", "Recall",
+                  "F1", "AUC", "AP", "FPR", "FNR", "TPR", "TNR"]
     vals = []
+
+    # Logger de tests en modo 'a' — acumula resultados de todos los folds
+    # y no sobreescribe entre runs
+    log_test = Logger("test_log.txt", mode='a')
 
     for fold, (train_idx, test_idx) in enumerate(kfold.split(x, y)):
         if fold == 1:
@@ -58,95 +67,133 @@ def pretrain_train_cross_validate(args):
             df.iloc[train_idx], test_size=0.3, random_state=fold)
         test_df = df.iloc[test_idx]
 
-        train_loader = DataLoader(MultiAtlas(
-            train_df,augment=cfg["AUG"]), batch_size=cfg["BATCH_SIZE"], shuffle=True, num_workers=8, pin_memory=True)
-        val_loader = DataLoader(MultiAtlas(
-            val_df,augment=cfg["AUG"]), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
-        test_loader = DataLoader(MultiAtlas(
-            test_df,augment=cfg["AUG"]), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
+        # --- DataLoaders ---
+        train_loader = DataLoader(MultiAtlas(train_df, augment=cfg["AUG"]),
+                                  batch_size=cfg["BATCH_SIZE"], shuffle=True,  **DL_KWARGS)
+        val_loader   = DataLoader(MultiAtlas(val_df,   augment=0.0),
+                                  batch_size=cfg["BATCH_SIZE"], shuffle=False, **DL_KWARGS)
+        test_loader  = DataLoader(MultiAtlas(test_df,  augment=0.0),
+                                  batch_size=cfg["BATCH_SIZE"], shuffle=False, **DL_KWARGS)
 
-        # Pretrain
-        pretrain_loader = DataLoader(ImputationDataset(
-            train_df), batch_size=cfg["BATCH_SIZE"], shuffle=True, num_workers=8, pin_memory=True)
-        preval_loader = DataLoader(ImputationDataset(
-            val_df), batch_size=cfg["BATCH_SIZE"], shuffle=False, num_workers=8, pin_memory=True)
+        pretrain_loader = DataLoader(ImputationDataset(train_df),
+                                     batch_size=cfg["BATCH_SIZE"], shuffle=True,  **DL_KWARGS)
+        preval_loader   = DataLoader(ImputationDataset(val_df),
+                                     batch_size=cfg["BATCH_SIZE"], shuffle=False, **DL_KWARGS)
 
-        pt_model = METAWrapper(d_model=256, dim_feedforward=128, num_encoder_layers=2,
-                               num_heads=4, dropout=cfg["DROP"]).to(cfg["DEVICE"])
-
+        # --- Cargar pesos preentrenados ---
+        pt_model = METAWrapper(d_model=256, dim_feedforward=128,
+                               num_encoder_layers=2, num_heads=4,
+                               dropout=cfg["DROP"]).to(device)
         pt_model.load_state_dict(torch.load("pretrained.pth"))
-
         pretrained = pt_model
 
-        pt_optim = optim.AdamW(pt_model.parameters(),
-                               lr=cfg["LR"], weight_decay=cfg["WEIGHT_DECAY"])
-
-        #pretrained = pretrain(model=pt_model, train_loader=pretrain_loader, val_loader=preval_loader,
-         #                     optimizer=pt_optim, epochs=cfg["EPOCHS"], device=device, stage=f"pretrain fold {fold}", patience=cfg["PATIENCE"], scheduler=None)
-
-
-
-
-
+        # pretrained = pretrain(
+        #     model=pt_model, cfg=cfg, train_loader=pretrain_loader,
+        #     val_loader=preval_loader,
+        #     optimizer=optim.AdamW(pt_model.parameters(),
+        #         lr=cfg["LR"], weight_decay=cfg["WEIGHT_DECAY"]),
+        #     epochs=cfg["EPOCHS"], device=device,
+        #     stage=f"pretrain fold {fold}",
+        #     patience=cfg["PATIENCE"], scheduler=None)
 
         print("Pretraining finished...")
 
-        # Load pretrained weights
-        model = METAFormer(d_model=256, dim_feedforward=128, num_encoder_layers=2,
-                           num_heads=4, dropout=cfg["DROP"]).to(cfg["DEVICE"])
+        # --- Construir METAFormer y cargar encoders preentrenados ---
+        model = METAFormer(d_model=256, dim_feedforward=128,
+                           num_encoder_layers=2, num_heads=4,
+                           dropout=cfg["DROP"]).to(device)
 
-         #model.load_state_dict(torch.load("pretrained.pth"))
-        model.aal_encoder.load_state_dict(
-                pretrained.aal_encoder.state_dict())
-        model.cc200_encoder.load_state_dict(
-            pretrained.cc200_encoder.state_dict())
-        model.dos160_encoder.load_state_dict(
-            pretrained.dos160_encoder.state_dict())
+        model.aal_encoder.load_state_dict(pretrained.aal_encoder.state_dict())
+        model.cc200_encoder.load_state_dict(pretrained.cc200_encoder.state_dict())
+        model.dos160_encoder.load_state_dict(pretrained.dos160_encoder.state_dict())
 
-        #HE inicialization
-        for m in model.modules():
-            if isinstance(m, nn.Linear):
+        # He initialization solo sobre los heads (capas nuevas)
+        # Los encoders tienen pesos preentrenados — no se tocan
+        for name, m in model.named_modules():
+            if isinstance(m, nn.Linear) and "encoder" not in name:
                 nn.init.kaiming_normal_(m.weight)
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-        optimizer = optim.AdamW(
-            model.parameters(), lr=cfg["LR"], weight_decay=cfg["WEIGHT_DECAY"])
+        criterion = cfg["LOSS"].to(device)
 
-        scheduler = optim.lr_scheduler.ExponentialLR(optimizer, gamma=cfg["GAMMA"])
-        criterion = cfg["LOSS"].to(cfg["DEVICE"])
+        # ----------------------------------------------------------------
+        # FASE 1 — encoders congelados, solo se entrenan los heads
+        # ----------------------------------------------------------------
+        print("Fase 1: encoders frozen...")
+        for name, param in model.named_parameters():
+            if "encoder" in name:
+                param.requires_grad = False
 
-        trained_model, best_a = train(model, train_loader, val_loader, criterion, optimizer,
-                                      device, epochs = cfg["EPOCHS"],  patience=cfg["PATIENCE"], scheduler=scheduler, return_best_acc=True)
+        optimizer_p1 = optim.AdamW(
+            [p for name, p in model.named_parameters() if "encoder" not in name],
+            lr=cfg["LR"],
+            weight_decay=cfg["WEIGHT_DECAY"]
+        )
 
-        # Test
+        model, _ = train(model, cfg, train_loader, val_loader, criterion,
+                         optimizer_p1, device,
+                         epochs=cfg["FREEZE_EPOCHS"],
+                         patience=cfg["FREEZE_EPOCHS"],  # sin early stopping en fase 1
+                         scheduler=None,
+                         return_best_acc=True)
+
+        # ----------------------------------------------------------------
+        # FASE 2 — todo descongelado, LR mas bajo
+        # ----------------------------------------------------------------
+        print("Fase 2: full model unfrozen...")
+        for param in model.parameters():
+            param.requires_grad = True
+
+        optimizer_p2 = optim.AdamW(
+            model.parameters(),
+            lr=cfg["LR_PHASE2"],
+            weight_decay=cfg["WEIGHT_DECAY"]
+        )
+        scheduler_p2 = optim.lr_scheduler.ExponentialLR(optimizer_p2, gamma=cfg["GAMMA"])
+
+        trained_model, best_a = train(model, cfg, train_loader, val_loader, criterion,
+                                      optimizer_p2, device,
+                                      epochs=cfg["EPOCHS"],
+                                      patience=cfg["PATIENCE"],
+                                      scheduler=scheduler_p2,
+                                      return_best_acc=True)
+
+        # --- Test ---
         print("Testing...")
         trues, preds, probs = test(trained_model, test_loader, device)
 
-        acc = accuracy_score(trues, preds)
+        acc       = accuracy_score(trues, preds)
         accs.append(acc)
-        cm = confusion_matrix(trues, preds)
+        cm        = confusion_matrix(trues, preds)
         precision = cm[1, 1] / (cm[1, 1] + cm[0, 1])
-        recall = cm[1, 1] / (cm[1, 1] + cm[1, 0])
-        f1 = 2 * (precision * recall) / (precision + recall)
-        auc = roc_auc_score(trues, preds)
-        ap = average_precision_score(trues, preds)
-        fpr = cm[0, 1] / (cm[0, 1] + cm[0, 0])
-        fnr = cm[1, 0] / (cm[1, 0] + cm[1, 1])
-        tpr = cm[1, 1] / (cm[1, 1] + cm[1, 0])
-        tnr = cm[0, 0] / (cm[0, 0] + cm[0, 1])
+        recall    = cm[1, 1] / (cm[1, 1] + cm[1, 0])
+        f1        = 2 * (precision * recall) / (precision + recall)
+        auc       = roc_auc_score(trues, probs)
+        ap        = average_precision_score(trues, probs)
+        fpr       = cm[0, 1] / (cm[0, 1] + cm[0, 0])
+        fnr       = cm[1, 0] / (cm[1, 0] + cm[1, 1])
+        tpr       = cm[1, 1] / (cm[1, 1] + cm[1, 0])
+        tnr       = cm[0, 0] / (cm[0, 0] + cm[0, 1])
 
-        print(f"Fold {fold}: Accuracy: {acc}")
+        print(f"Fold {fold}: Accuracy: {acc:.4f}")
         print(f"Fold {fold}: Confusion matrix:\n{cm}")
 
-        vals.append([fold, acc, precision, recall,
-                     f1, auc, ap, fpr, fnr, tpr, tnr])
+        # Loguear resultados del test (modo 'a' — acumula entre runs)
+        log_test.log_test(fold, acc, precision, recall, f1, auc, ap, fpr, fnr, tpr, tnr)
+
+        vals.append([fold, acc, precision, recall, f1, auc, ap, fpr, fnr, tpr, tnr])
 
     results = pd.DataFrame(vals, columns=table_cols)
+    results.to_csv("results.csv", index=False)
     print(results)
     print(80 * "=")
-    print(f"Mean accuracy: {np.mean(accs)}")
-    print(f"Std accuracy: {np.std(accs)}")
+    mean_acc = np.mean(accs)
+    std_acc  = np.std(accs)
+    print(f"Mean accuracy: {mean_acc:.4f}")
+    print(f"Std  accuracy: {std_acc:.4f}")
+
+    log_test.log_summary(mean_acc, std_acc)
 
 
 if __name__ == "__main__":

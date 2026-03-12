@@ -6,8 +6,9 @@ from tqdm import tqdm
 from sklearn.metrics import accuracy_score
 import torch.nn.functional as F
 import torch.nn as nn
-from logger import log_losses
+from logger import Logger
 from METAFormer.dataloader import ImputationDataset
+
 
 
 class MaskedMSELoss(nn.Module):
@@ -27,13 +28,15 @@ class MaskedMSELoss(nn.Module):
         return self.mse_loss(masked_pred, masked_true)
 
 
-def pretrain(model, train_loader, val_loader, optimizer,device, epochs, stage, patience, scheduler=None):
+def pretrain(model,cfg, train_loader, val_loader, optimizer,device, epochs, stage, patience, scheduler=None):
     early_stopping = True if patience else False
     losses = []
     val_losses = []
     best_val_loss = float('inf')
     best_model = None
     counter = 0
+
+    log_pretraining = Logger("pretrain_log.txt")
 
     crit_aal = MaskedMSELoss()
     crit_cc200 = MaskedMSELoss()
@@ -46,6 +49,7 @@ def pretrain(model, train_loader, val_loader, optimizer,device, epochs, stage, p
             running_loss = 0.0
             model.train()
             for i, ((aal, cc200, dos160), (aal_masked, cc200_masked, dos160_masked), (aal_mask, cc200_mask, dos160_mask)) in enumerate(train_loader):
+                
                 aal, cc200, dos160 = aal.to(device), cc200.to(device), dos160.to(device)
                 aal_masked, cc200_masked, dos160_masked = aal_masked.to(device), cc200_masked.to(device), dos160_masked.to(device)
                 aal_mask, cc200_mask, dos160_mask = aal_mask.to(device), cc200_mask.to(device), dos160_mask.to(device)
@@ -109,13 +113,13 @@ def pretrain(model, train_loader, val_loader, optimizer,device, epochs, stage, p
                 #tepoch.set_postfix(train_loss=f"{train_loss:.4f}")
                 tepoch.set_postfix(val_loss=f"{avg_val_loss:.4f}")
                 #tepoch.set_postfix(counter=f"{counter}")
-                #log_losses(stage, epoch, train_loss, avg_val_loss)
+                log_pretraining.logs(stage, epoch, train_loss, avg_val_loss,cfg)
 
     torch.save(best_model.state_dict(), "pretrained.pth")
     return best_model
 
 
-def train(model, train_loader, val_loader, criterion, optimizer,device, epochs, patience, scheduler=None, return_best_acc=False):
+def train(model,cfg, train_loader, val_loader, criterion, optimizer,device, epochs, patience, scheduler=None, return_best_acc=False):
 
     early_stopping = True if patience else False
     losses = []
@@ -124,7 +128,8 @@ def train(model, train_loader, val_loader, criterion, optimizer,device, epochs, 
     best_model = None
     best_acc = 0
     counter = 0
-   
+    
+    log_finetuning = Logger("finetuning_log.txt")
 
     with tqdm(range(epochs), unit="epoch") as tepoch:
         for epoch in tepoch:
@@ -144,8 +149,7 @@ def train(model, train_loader, val_loader, criterion, optimizer,device, epochs, 
 
                 running_loss += loss.item()
                 epoch_losses.append(loss.item())
-            if scheduler:
-                scheduler.step()
+            
             losses.extend(epoch_losses)
             epoch_losses = []
 
@@ -173,6 +177,12 @@ def train(model, train_loader, val_loader, criterion, optimizer,device, epochs, 
                 train_loss = running_loss/len(train_loader)
                 acc = accuracy_score(y_true, y_pred)
 
+                if scheduler:
+                    if isinstance(scheduler, torch.optim.lr_scheduler.ReduceLROnPlateau):
+                        scheduler.step(avg_val_loss)
+                    else:
+                        scheduler.step()
+
                 if avg_val_loss < best_val_loss:
                     best_val_loss = avg_val_loss
                     best_model = copy.deepcopy(model)
@@ -187,7 +197,7 @@ def train(model, train_loader, val_loader, criterion, optimizer,device, epochs, 
             
             #tepoch.set_postfix(train_loss=f"{running_loss/len(train_loader)}")
             tepoch.set_postfix(val_loss=f"{avg_val_loss:.4f}")
-            log_losses(f"fine tuning", epoch, train_loss, avg_val_loss)
+            log_finetuning.logs(f"fine tuning", epoch, train_loss, avg_val_loss,cfg)
 
     print(f"best acc: {best_acc}")
 

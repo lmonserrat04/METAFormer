@@ -6,6 +6,8 @@ assets/
 # --- Python & Entorno ---
 __pycache__/
 *.pyc
+*.txt
+*.pth
 venv/
 .env
 .ipynb_checkpoints/
