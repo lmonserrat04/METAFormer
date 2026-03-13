@@ -40,9 +40,9 @@ class METAWrapper(nn.Module):
         self.cc200_encoder  = EncoderBlock(19900, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
         self.dos160_encoder = EncoderBlock(12880, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
 
-        self.aal_act    = nn.GELU()
-        self.cc200_act  = nn.GELU()
-        self.dos160_act = nn.GELU()
+        # self.aal_act    = nn.GELU()
+        # self.cc200_act  = nn.GELU()
+        # self.dos160_act = nn.GELU()
 
         self.aal_do    = nn.Dropout(dropout)
         self.cc200_do  = nn.Dropout(dropout)
@@ -59,9 +59,9 @@ class METAWrapper(nn.Module):
         cc200  = self.cc200_encoder(cc200)
         dos160 = self.dos160_encoder(dos160)
 
-        aal    = self.aal_act(aal)
-        cc200  = self.cc200_act(cc200)
-        dos160 = self.dos160_act(dos160)
+        # aal    = self.aal_act(aal)
+        # cc200  = self.cc200_act(cc200)
+        # dos160 = self.dos160_act(dos160)
 
         aal    = self.aal_do(aal)
         cc200  = self.cc200_do(cc200)
@@ -87,9 +87,9 @@ class METAFormer(nn.Module):
         self.cc200_encoder  = EncoderBlock(19900, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
         self.dos160_encoder = EncoderBlock(12880, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
 
-        self.aal_act    = nn.GELU()
-        self.cc200_act  = nn.GELU()
-        self.dos160_act = nn.GELU()
+        # self.aal_act    = nn.GELU()
+        # self.cc200_act  = nn.GELU()
+        # self.dos160_act = nn.GELU()
 
         self.aal_do    = nn.Dropout(p=dropout)
         self.cc200_do  = nn.Dropout(p=dropout)
@@ -104,9 +104,9 @@ class METAFormer(nn.Module):
         cc200  = self.cc200_encoder(cc200)
         dos160 = self.dos160_encoder(dos160)
 
-        aal    = self.aal_act(aal)
-        cc200  = self.cc200_act(cc200)
-        dos160 = self.dos160_act(dos160)
+        # aal    = self.aal_act(aal)
+        # cc200  = self.cc200_act(cc200)
+        # dos160 = self.dos160_act(dos160)
 
         aal    = self.aal_do(aal)
         cc200  = self.cc200_do(cc200)
@@ -125,17 +125,14 @@ class EncoderBlock(nn.Module):
         self.d_model = d_model
         self.inp_emb = nn.Linear(input_dim, d_model)
 
-        self.norm = nn.LayerNorm(d_model)
-        encoder_layer = nn.TransformerEncoderLayer(
-            d_model, n_heads, dim_feedforward, dropout=dropout,
-            activation="gelu", batch_first=True)
+        encoder_layer = nn.TransformerEncoderLayer(d_model, n_heads, dim_feedforward, dropout=dropout, 
+                                                    activation="gelu", batch_first=True)
         self.encoder = nn.TransformerEncoder(encoder_layer, num_encoder_layers)
 
     def forward(self, x, mask=None):
         # x: (B, feat_dim) -> (B, 1, feat_dim)
         x = x.unsqueeze(1)
         x = self.inp_emb(x)
-        x = self.norm(x)
         x = x / math.sqrt(self.d_model)  # (B, 1, d_model)
         x = self.encoder(x)
         x = x.squeeze(1)  # (B, d_model)

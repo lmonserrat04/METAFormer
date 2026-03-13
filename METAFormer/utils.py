@@ -28,12 +28,6 @@ class MaskedMSELoss(nn.Module):
 
 
 
-
-
-
-
-
-
 def test(model, test_loader, device):
     model.eval()
     y_true, y_pred, y_prob = [], [], []
