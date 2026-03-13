@@ -14,7 +14,7 @@ class SAT(nn.Module):
         self.dropout = dropout
 
         self.encoder = EncoderBlock(
-            feat_dim, d_model, dim_feedforward, num_encoder_layers, num_heads, dropout)
+            feat_dim, d_model, dim_feedforward, num_encoder_layers, num_heads)
         self.act = nn.GELU()
         self.do = nn.Dropout(p=dropout)
         self.head = nn.Linear(d_model, 2)
@@ -120,10 +120,12 @@ class METAFormer(nn.Module):
 
 
 class EncoderBlock(nn.Module):
-    def __init__(self, input_dim, d_model, dim_feedforward, num_encoder_layers, n_heads, dropout=0.1):
+    def __init__(self, input_dim, d_model, dim_feedforward, num_encoder_layers, n_heads,dropout):
         super().__init__()
         self.d_model = d_model
         self.inp_emb = nn.Linear(input_dim, d_model)
+
+        self.norm = nn.LayerNorm(d_model)
         encoder_layer = nn.TransformerEncoderLayer(
             d_model, n_heads, dim_feedforward, dropout=dropout,
             activation="gelu", batch_first=True)
@@ -132,8 +134,9 @@ class EncoderBlock(nn.Module):
     def forward(self, x, mask=None):
         # x: (B, feat_dim) -> (B, 1, feat_dim)
         x = x.unsqueeze(1)
-        x = self.inp_emb(x) / math.sqrt(self.d_model)  # (B, 1, d_model)
-        # seq_len=1: src_key_padding_mask no tiene sentido, siempre se pasa sin mascara
+        x = self.inp_emb(x)
+        x = self.norm(x)
+        x = x / math.sqrt(self.d_model)  # (B, 1, d_model)
         x = self.encoder(x)
         x = x.squeeze(1)  # (B, d_model)
         return x
